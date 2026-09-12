@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
 
-DEFAULT_URL = 'http://localhost:4566/execute-api/f987ff2baa/$default/events'
+DEFAULT_URL = 'http://localhost:4566/execute-api/d64d95c3bd/$default/events'
 DEFAULT_WORKERS = 20
 
 
