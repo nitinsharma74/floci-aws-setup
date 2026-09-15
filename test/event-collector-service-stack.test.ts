@@ -17,6 +17,15 @@ test('Test Stack Created', () => {
     BucketName: 'event-collector-service-athena-results',
   });
 
+  template.resourceCountIs('AWS::Kinesis::Stream', 1);
+
+  template.hasResourceProperties('AWS::Kinesis::Stream', {
+    Name: 'event-collector-service-events-stream',
+    StreamModeDetails: {
+      StreamMode: 'ON_DEMAND',
+    },
+  });
+
   template.hasResourceProperties('AWS::IAM::Role', {
     AssumeRolePolicyDocument: {
       Statement: Match.arrayWith([
@@ -32,6 +41,7 @@ test('Test Stack Created', () => {
   });
 
   template.resourceCountIs('AWS::KinesisFirehose::DeliveryStream', 1);
+
   template.hasResourceProperties('AWS::KinesisFirehose::DeliveryStream', {
     DeliveryStreamName: 'event-collector-service-events-delivery-stream',
     DeliveryStreamType: 'DirectPut',
@@ -41,22 +51,53 @@ test('Test Stack Created', () => {
         SizeInMBs: 5,
       },
       CompressionFormat: 'GZIP',
-      Prefix:
-        'events/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/hour=!{timestamp:HH}/',
-      ErrorOutputPrefix:
-        'errors/!{firehose:error-output-type}/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/',
+      Prefix: 'events/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/hour=!{timestamp:HH}/',
+      ErrorOutputPrefix: 'errors/!{firehose:error-output-type}/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/',
     }),
   });
 
-  template.resourceCountIs('AWS::Lambda::Function', 1);
+  template.resourceCountIs('AWS::Lambda::Function', 2);
+
   template.hasResourceProperties('AWS::Lambda::Function', {
     FunctionName: 'event-collector-service-events-processing-lambda',
     Runtime: 'python3.13',
-    Handler: 'event-processor-lambda-handler.handler',
+    Handler: 'event_processor_lambda_handler.handler',
+    Environment: {
+      Variables: Match.objectLike({
+        KINESIS_STREAM_NAME: Match.anyValue(),
+      }),
+    },
+  });
+
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    FunctionName: 'event-collector-service-kinesis-to-firehose-lambda',
+    Runtime: 'python3.13',
+    Handler: 'kinesis_to_firehose_lambda_handler.handler',
     Environment: {
       Variables: Match.objectLike({
         FIREHOSE_DELIVERY_STREAM_NAME: Match.anyValue(),
       }),
+    },
+  });
+
+  template.hasResourceProperties('AWS::Lambda::EventSourceMapping', {
+    StartingPosition: 'LATEST',
+    BatchSize: 100,
+    EventSourceArn: Match.anyValue(),
+    FunctionName: Match.anyValue(),
+  });
+
+  template.hasResourceProperties('AWS::IAM::Policy', {
+    PolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Effect: 'Allow',
+          Action: Match.arrayWith([
+            'kinesis:PutRecord',
+            'kinesis:PutRecords',
+          ]),
+        }),
+      ]),
     },
   });
 
@@ -74,19 +115,36 @@ test('Test Stack Created', () => {
     },
   });
 
+  template.hasResourceProperties('AWS::IAM::Policy', {
+    PolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Effect: 'Allow',
+          Action: Match.arrayWith([
+            'kinesis:GetRecords',
+            'kinesis:GetShardIterator',
+          ]),
+        }),
+      ]),
+    },
+  });
+
   template.resourceCountIs('AWS::ApiGatewayV2::Api', 1);
+
   template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
     Name: 'event-collector-api',
     ProtocolType: 'HTTP',
   });
 
   template.resourceCountIs('AWS::ApiGatewayV2::Integration', 1);
+
   template.hasResourceProperties('AWS::ApiGatewayV2::Integration', {
     IntegrationType: 'AWS_PROXY',
     PayloadFormatVersion: '2.0',
   });
 
   template.resourceCountIs('AWS::ApiGatewayV2::Route', 1);
+
   template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
     RouteKey: 'POST /events',
     AuthorizationType: 'NONE',
@@ -98,6 +156,7 @@ test('Test Stack Created', () => {
   });
 
   template.resourceCountIs('AWS::Glue::Database', 1);
+
   template.hasResourceProperties('AWS::Glue::Database', {
     DatabaseInput: {
       Name: 'event_collector',
@@ -105,6 +164,7 @@ test('Test Stack Created', () => {
   });
 
   template.resourceCountIs('AWS::Glue::Table', 1);
+
   template.hasResourceProperties('AWS::Glue::Table', {
     DatabaseName: Match.anyValue(),
     TableInput: {
@@ -117,8 +177,7 @@ test('Test Stack Created', () => {
       StorageDescriptor: Match.objectLike({
         Location: Match.anyValue(),
         InputFormat: 'org.apache.hadoop.mapred.TextInputFormat',
-        OutputFormat:
-          'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat',
+        OutputFormat: 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat',
         Columns: [
           { Name: 'eventType', Type: 'string' },
           { Name: 'eventId', Type: 'string' },
@@ -135,6 +194,7 @@ test('Test Stack Created', () => {
   });
 
   template.resourceCountIs('AWS::Athena::WorkGroup', 1);
+
   template.hasResourceProperties('AWS::Athena::WorkGroup', {
     Name: 'event-collector-service-workgroup',
     WorkGroupConfiguration: {
