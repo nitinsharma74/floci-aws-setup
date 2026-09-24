@@ -4,6 +4,7 @@ import * as cdk from 'aws-cdk-lib';
 // Stacks to be deployed as part of this app
 import { TestStack } from '../lib/test-stack';
 import { EventCollectorServiceStack } from '../lib/event-collector-service-stack'
+import { OpensearchServiceStack } from '../lib/opensearch-service-stack'
 
 const app = new cdk.App();
 
@@ -18,5 +19,9 @@ new TestStack(app, 'TestStack', {
 });
 
 new EventCollectorServiceStack(app, 'EventCollectorServiceStack', {
+  env,
+});
+
+new OpensearchServiceStack(app, 'OpenSearchServiceStack', {
   env,
 });
