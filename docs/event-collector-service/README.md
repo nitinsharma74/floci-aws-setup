@@ -1035,3 +1035,29 @@ Potential improvements include:
 * Partial batch failure handling for the Kinesis consumer.
 * Production AWS load testing.
 * Scaling toward 1 million events per minute.
+
+---
+
+## 26. Multi-region Deployment (Planned)
+
+We plan to deploy a separate event collector pipeline in three AWS regions:
+
+| Caller location | AWS region |
+|---|---|
+| North America | `us-east-1` — Virginia |
+| Europe | `eu-central-1` — Frankfurt |
+| India | `ap-south-1` — Mumbai |
+| Other or unknown | `us-east-1` — Virginia |
+
+Route 53 is AWS’s DNS service. It will direct clients using one address, such as `https://events.example.com/events`, to the regional API based on their DNS location. It does not inspect the event’s `country` field. See [AWS geolocation routing](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-policy-geo.html).
+
+To set this up, we will:
+
+1. Deploy the existing collector stack in each region, with unique resource names.
+2. Keep each region’s processing, storage, and analytics together.
+3. Configure the same API Gateway custom domain and a regional TLS certificate in all three regions.
+4. Add Route 53 geolocation records for North America, Europe, and India, with North America as the default.
+
+There will be no automatic cross-region failover. DNS location is approximate and does not guarantee data residency.
+
+Floci can store Route 53 configuration, but its documented implementation does not perform DNS routing. We will test each regional pipeline directly in Floci and verify geographic routing later in AWS. See [Floci Route 53 support](https://github.com/floci-io/floci/blob/main/docs/services/route53.md).
