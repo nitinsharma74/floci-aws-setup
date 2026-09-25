@@ -7,6 +7,11 @@ This project uses:
 * AWS CDK v2 with TypeScript
 * `aws-cdk-local` (`cdklocal`) to deploy CDK stacks to Floci
 
+## Projects
+
+* [Event Collector Service](docs/event-collector-service/README.md) — An event ingestion pipeline using API Gateway, Lambda, Kinesis, Firehose, S3, Glue, and Athena.
+* [OpenSearch Movie Search Service](docs/opensearch-service/README.md) — A serverless movie search and search-as-you-type service using S3, Lambda, API Gateway, and OpenSearch.
+
 ### 1. Install prerequisites
 
 Install Node.js:
