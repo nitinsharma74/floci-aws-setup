@@ -1,4 +1,4 @@
-## Local AWS Development with Floci + TypeScript CDK
+# Local AWS Development with Floci + TypeScript CDK
 
 This project uses:
 
@@ -9,8 +9,10 @@ This project uses:
 
 ## Projects
 
-* [Event Collector Service](docs/event-collector-service/README.md) — An event ingestion pipeline using API Gateway, Lambda, Kinesis, Firehose, S3, Glue, and Athena.
-* [OpenSearch Movie Search Service](docs/opensearch-service/README.md) — A serverless movie search and search-as-you-type service using S3, Lambda, API Gateway, and OpenSearch.
+| Project | Description |
+| --- | --- |
+| [Event Collector Service](docs/event-collector-service/README.md) | An event ingestion pipeline using API Gateway, Lambda, Kinesis, Firehose, S3, Glue, and Athena. |
+| [OpenSearch Movie Search Service](docs/opensearch-service/README.md) | Weekly movie ingestion from S3 into OpenSearch, triggered by EventBridge and processed by Lambda. |
 
 ### 1. Install prerequisites
 

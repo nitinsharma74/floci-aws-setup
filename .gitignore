@@ -3,6 +3,11 @@
 *.d.ts
 node_modules
 
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+
 # CDK asset staging directory
 .cdk.staging
 cdk.out
