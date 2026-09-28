@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import * as cdk from 'aws-cdk-lib';
-import { Template } from 'aws-cdk-lib/assertions';
+import { Match, Template } from 'aws-cdk-lib/assertions';
 import { OpensearchServiceStack } from '../lib/opensearch-service-stack';
 
 test('creates the movies data bucket and OpenSearch Lambda functions', () => {
@@ -36,6 +36,49 @@ test('creates the movies data bucket and OpenSearch Lambda functions', () => {
     FunctionName: 'opensearch-stack-search-lambda',
     Runtime: 'python3.13',
     Handler: 'opensearch_search_lambda.handler',
+    Timeout: 25,
+    MemorySize: 512,
+    Environment: { Variables: { OPENSEARCH_DOMAIN: 'movies-search', OPENSEARCH_INDEX: 'movies' } },
+  });
+
+  const searchFunctionId = stack.getLogicalId(
+    stack.node.findChild('SearchLambda').node.defaultChild as cdk.CfnResource,
+  );
+  template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
+    Name: 'movies-search-api', ProtocolType: 'HTTP',
+  });
+  template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+    RouteKey: 'GET /movies/search', AuthorizationType: 'NONE',
+    Target: Match.objectLike({ 'Fn::Join': Match.anyValue() }),
+  });
+  template.hasResourceProperties('AWS::ApiGatewayV2::Integration', {
+    IntegrationType: 'AWS_PROXY', PayloadFormatVersion: '2.0',
+    IntegrationUri: { 'Fn::GetAtt': [searchFunctionId, 'Arn'] },
+  });
+  template.hasResourceProperties('AWS::Lambda::Permission', {
+    Action: 'lambda:InvokeFunction',
+    FunctionName: { 'Fn::GetAtt': [searchFunctionId, 'Arn'] },
+    Principal: 'apigateway.amazonaws.com', SourceArn: Match.anyValue(),
+  });
+  template.hasOutput('MoviesSearchApiId', { Value: Match.anyValue() });
+  template.hasOutput('MoviesSearchUrl', { Value: Match.anyValue() });
+  const searchRoleId = stack.getLogicalId(
+    stack.node.findChild('SearchLambda').node.findChild('ServiceRole').node.defaultChild as cdk.CfnResource,
+  );
+  const domainId = stack.getLogicalId(
+    stack.node.findChild('MoviesSearchDomain').node.defaultChild as cdk.CfnResource,
+  );
+  const domainArn = { 'Fn::GetAtt': [domainId, 'Arn'] };
+  const domainPath = (path: string) => ({ 'Fn::Join': ['', [domainArn, path]] });
+  template.hasResourceProperties('AWS::IAM::Policy', {
+    Roles: [{ Ref: searchRoleId }],
+    PolicyDocument: { Statement: Match.arrayWith([
+      Match.objectLike({ Action: 'es:DescribeDomain', Effect: 'Allow', Resource: domainArn }),
+      Match.objectLike({ Action: 'es:ESHttpPost', Effect: 'Allow', Resource: Match.arrayWith([
+        domainPath('/movies/_search/point_in_time'), domainPath('/_search'),
+      ]) }),
+      Match.objectLike({ Action: 'es:ESHttpDelete', Effect: 'Allow', Resource: domainPath('/_search/point_in_time') }),
+    ]) },
   });
 
   const ingestionFunctionId = stack.getLogicalId(

@@ -5,6 +5,9 @@ import { Bucket } from 'aws-cdk-lib/aws-s3';
 import { Rule, Schedule } from 'aws-cdk-lib/aws-events';
 import { LambdaFunction } from 'aws-cdk-lib/aws-events-targets';
 import { Construct } from 'constructs';
+import { HttpApi, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv2';
+import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 
 export class OpensearchServiceStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -84,11 +87,22 @@ export class OpensearchServiceStack extends cdk.Stack {
       functionName: 'opensearch-stack-search-lambda',
       runtime: Runtime.PYTHON_3_13,
       handler: 'opensearch_search_lambda.handler',
+      timeout: cdk.Duration.seconds(25),
+      memorySize: 512,
       code: Code.fromAsset(
-        'stacks/opensearch-service-stack/lambda/opensearch_search_lambda'
+        'stacks/opensearch-service-stack/lambda/opensearch_search_lambda',
+        {
+          bundling: {
+            image: Runtime.PYTHON_3_13.bundlingImage,
+            command: [
+              'bash', '-c',
+              'pip install -r requirements.txt -t /asset-output && cp -au . /asset-output',
+            ],
+          },
+        },
       ),
       environment: {
-        OPENSEARCH_ENDPOINT: searchDomain.domainEndpoint,
+        OPENSEARCH_DOMAIN: domainName,
         OPENSEARCH_INDEX: 'movies',
       },
     });
@@ -99,7 +113,34 @@ export class OpensearchServiceStack extends cdk.Stack {
     // Ingestion Lambda needs to write documents to the movies index
     searchDomain.grantIndexWrite('movies', ingestionLambda);
 
-    // Search Lambda only needs to read/search the movies index
-    searchDomain.grantIndexRead('movies', searchLambda);
+    // PIT searches use root endpoints; restrict each verb to its specific path.
+    searchLambda.addToRolePolicy(new PolicyStatement({
+      actions: ['es:DescribeDomain'],
+      resources: [searchDomain.domainArn],
+    }));
+    searchLambda.addToRolePolicy(new PolicyStatement({
+      actions: ['es:ESHttpPost'],
+      resources: [
+        `${searchDomain.domainArn}/movies/_search/point_in_time`,
+        `${searchDomain.domainArn}/_search`,
+      ],
+    }));
+    searchLambda.addToRolePolicy(new PolicyStatement({
+      actions: ['es:ESHttpDelete'],
+      resources: [`${searchDomain.domainArn}/_search/point_in_time`],
+    }));
+
+    const searchApi = new HttpApi(this, 'MoviesSearchApi', {
+      apiName: 'movies-search-api',
+    });
+    searchApi.addRoutes({
+      path: '/movies/search',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('MoviesSearchIntegration', searchLambda),
+    });
+    new cdk.CfnOutput(this, 'MoviesSearchApiId', { value: searchApi.apiId });
+    new cdk.CfnOutput(this, 'MoviesSearchUrl', {
+      value: `${searchApi.apiEndpoint}/movies/search`,
+    });
   }
 }

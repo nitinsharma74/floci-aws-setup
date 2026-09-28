@@ -1,482 +1,291 @@
 # Local AWS Development with Floci + TypeScript CDK
 
-This project uses:
-
-* Floci for local AWS emulation
-* AWS CLI v2
-* AWS CDK v2 with TypeScript
-* `aws-cdk-local` (`cdklocal`) to deploy CDK stacks to Floci
+This repository contains AWS examples developed locally with Floci, AWS CDK in
+TypeScript, and Python Lambda functions. Use the existing stacks below to deploy
+and test each service.
 
 ## Projects
 
-| Project | Description |
-| --- | --- |
-| [Event Collector Service](docs/event-collector-service/README.md) | An event ingestion pipeline using API Gateway, Lambda, Kinesis, Firehose, S3, Glue, and Athena. |
-| [OpenSearch Movie Search Service](docs/opensearch-service/README.md) | Weekly movie ingestion from S3 into OpenSearch, triggered by EventBridge and processed by Lambda. |
+| Stack | What it does | Guide |
+| --- | --- | --- |
+| `TestStack` | An S3 upload invokes a Lambda that uppercases the file contents and writes them to a processed bucket. | [Stack source](lib/test-stack.ts) |
+| `EventCollectorServiceStack` | An HTTP API accepts events for processing through Lambda, Kinesis, Firehose, S3, Glue, and Athena. | [Event Collector Service](docs/event-collector-service/README.md) |
+| `OpenSearchServiceStack` | Ingests MovieLens data and serves title search with typo tolerance, genre filters, and JSON pagination. Autocomplete is planned. | [OpenSearch Movie Search Service](docs/opensearch-service/README.md) |
 
-### 1. Install prerequisites
-
-Install Node.js:
-
-```bash
-brew install node
-```
-
-Install AWS CLI:
-
-```bash
-brew install awscli
-```
-
-Install Floci:
-
-```bash
-brew install floci-io/floci/floci
-```
-
-Verify:
-
-```bash
-node --version
-npm --version
-aws --version
-floci --version
-```
-
----
-
-## 2. Start Floci
-
-```bash
-floci start
-```
-
-Load the local AWS environment:
-
-```bash
-eval "$(floci env)"
-```
-
-`aws-cdk-local` also requires a dedicated S3 endpoint:
-
-```bash
-export AWS_ENDPOINT_URL_S3=http://s3.localhost.floci.io:4566
-```
-
-Verify:
-
-```bash
-env | grep '^AWS_'
-```
-
-Expected values should include:
-
-```text
-AWS_ENDPOINT_URL=http://localhost.floci.io:4566
-AWS_ENDPOINT_URL_S3=http://s3.localhost.floci.io:4566
-AWS_ACCESS_KEY_ID=test
-AWS_SECRET_ACCESS_KEY=test
-AWS_DEFAULT_REGION=us-east-1
-```
-
-Verify AWS connectivity:
-
-```bash
-aws sts get-caller-identity
-```
-
-Expected local account:
-
-```text
-000000000000    arn:aws:iam::000000000000:root    000000000000
-```
-
----
-
-## 3. Initialize the TypeScript CDK project
-
-From the root of the empty repository:
-
-```bash
-npx aws-cdk init app --language typescript
-```
-
-Install `cdklocal`:
-
-```bash
-npm install --save-dev aws-cdk-local aws-cdk
-```
-
-The project should now contain:
+The CDK entry point is [bin/app.ts](bin/app.ts). Stack definitions live in `lib/`,
+Lambda code in `stacks/`, and infrastructure and Python tests in `test/`.
 
 ```text
 .
-├── bin/
+├── bin/app.ts
 ├── lib/
+├── stacks/
+├── docs/
 ├── test/
+│   └── python/
 ├── cdk.json
 ├── package.json
 ├── package-lock.json
 └── tsconfig.json
 ```
 
----
+## Prerequisites
 
-## 4. Create the stack
-
-The generated `bin/<project>.ts` should look similar to:
-
-```typescript
-#!/usr/bin/env node
-
-import * as cdk from 'aws-cdk-lib';
-import { FlociAwsSetupStack } from '../lib/floci-aws-setup-stack';
-
-const app = new cdk.App();
-
-new FlociAwsSetupStack(app, 'FlociAwsSetupStack', {
-  env: {
-    account: process.env.CDK_DEFAULT_ACCOUNT ?? '000000000000',
-    region: process.env.CDK_DEFAULT_REGION ?? 'us-east-1',
-  },
-});
-```
-
----
-
-## 5. Add AWS resources
-
-For example, add an S3 bucket in:
-
-```text
-lib/floci-aws-setup-stack.ts
-```
-
-```typescript
-import * as cdk from 'aws-cdk-lib';
-import * as s3 from 'aws-cdk-lib/aws-s3';
-import { Construct } from 'constructs';
-
-export class FlociAwsSetupStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
-    super(scope, id, props);
-
-    new s3.Bucket(this, 'TestBucket', {
-      versioned: true,
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-    });
-  }
-}
-```
-
-CDK will generate the physical bucket name automatically.
-
----
-
-## 6. Build and synthesize
+Install Node.js/npm, AWS CLI v2, Floci, and Python 3. Python 3.13 matches the Lambda
+runtime. Install and start Docker Desktop (or a compatible Docker engine) before
+using Floci or bundling Lambda dependencies. Commands below assume a macOS shell
+and are run from the repository root.
 
 ```bash
-npm run build
+# Install the command-line prerequisites with Homebrew.
+brew install node awscli python
+brew install floci-io/floci/floci
+
+# Verify the installed tools; AWS CLI should report aws-cli/2.x.
+node --version
+npm --version
+aws --version
+floci --version
+python3 --version
+
+# Verify that the Docker engine is running and reachable.
+docker info
 ```
 
-Then:
+Docker is also required for CDK synthesis and infrastructure tests because the
+OpenSearch Lambda dependencies are bundled in Docker. Bundling downloads Python
+packages, so it requires network access.
+
+## Set up the repository
 
 ```bash
-npx cdk synth
-```
+# Install the Node dependencies recorded in package-lock.json, including CDK tools.
+npm ci
 
-This generates the CloudFormation template locally without deploying anything.
+# Start the local AWS emulator.
+floci start
 
----
-
-## 7. Bootstrap CDK in Floci
-
-Make sure the Floci environment is loaded:
-
-```bash
+# Load Floci's local endpoint, test credentials, and region into this shell.
 eval "$(floci env)"
+
+# Set the dedicated S3 endpoint required by aws-cdk-local.
 export AWS_ENDPOINT_URL_S3=http://s3.localhost.floci.io:4566
-```
 
-Then bootstrap:
+# Confirm that AWS calls reach the local account (000000000000).
+aws sts get-caller-identity
 
-```bash
+# Create CDKToolkit and its asset bucket in Floci, normally once per local environment.
 npx cdklocal bootstrap
+
+# Type-check the existing CDK app.
+npm run build
+
+# List the three stack names available for deployment.
+npx cdklocal list
 ```
 
-This creates the CDK bootstrap stack:
+Reload the Floci environment and S3 endpoint in each new terminal session.
+The default local region is `us-east-1`. Bootstrapping must be repeated if the
+local bootstrap resources are removed or the emulator state is reset.
 
-```text
-CDKToolkit
-```
+## Build and deploy a stack
 
-It also creates the CDK asset bucket used internally by CDK.
-
-You normally only need to bootstrap once.
-
----
-
-## 8. Deploy the stack
+Choose a stack from the project table. This example deploys the movie service:
 
 ```bash
-npx cdklocal deploy
-```
+# Generate the movie stack's CloudFormation template and bundled Lambda assets.
+npx cdklocal synth OpenSearchServiceStack
 
-Or without confirmation prompts:
+# Review changes to the local deployment.
+npx cdklocal diff OpenSearchServiceStack
 
-```bash
-npx cdklocal deploy --require-approval never
-```
+# Deploy the selected stack to Floci.
+npx cdklocal deploy OpenSearchServiceStack
 
-Verify the CloudFormation stacks:
+# Inspect the deployed stack and its outputs.
+aws cloudformation describe-stacks --stack-name OpenSearchServiceStack
 
-```bash
-aws cloudformation list-stacks
-```
-
-Verify S3 buckets:
-
-```bash
+# List local S3 buckets, including the CDK bootstrap bucket.
 aws s3 ls
 ```
 
-You should see:
+For the other examples, substitute `TestStack` or `EventCollectorServiceStack`.
+Follow the selected service guide for data upload, invocation, and verification.
+In particular, Floci may require the OpenSearch domain to be created separately;
+follow [Run locally](docs/opensearch-service/README.md#run-locally) to create the
+domain, upload the CSV, and run ingestion before searching.
 
-* the bucket created by your application stack
-* a CDK bootstrap asset bucket created by `CDKToolkit`
+## Movie search quick start
 
----
-
-## 9. Destroy the application stack
-
-```bash
-npx cdklocal destroy
-```
-
-This removes your application stack and its resources.
-
-It does **not** remove the `CDKToolkit` bootstrap stack.
-
-To inspect remaining stacks:
+After completing [OpenSearch setup and ingestion](docs/opensearch-service/README.md#run-locally),
+use API Gateway's local endpoint to search the data:
 
 ```bash
-aws cloudformation list-stacks
+# Discover the deployed API ID instead of hardcoding a session-specific value.
+MOVIES_API_ID=$(aws apigatewayv2 get-apis \
+  --query "Items[?Name=='movies-search-api'].ApiId | [0]" --output text)
+
+# Construct Floci's host-accessible route; preserve the literal $default stage name.
+MOVIES_SEARCH_URL="http://localhost:4566/execute-api/${MOVIES_API_ID}/\$default/movies/search"
+
+# Search titles with typo tolerance and filter to Comedy; return at most five movies.
+curl -sS --max-time 30 --get "$MOVIES_SEARCH_URL" \
+  --data-urlencode 'q=toy stroy' \
+  --data-urlencode 'genre=Comedy' \
+  --data-urlencode 'limit=5'
 ```
 
-The CDK bootstrap resources can normally be left in place and reused.
+If API discovery returns `None`, check that `OpenSearchServiceStack` is deployed
+and that the shell uses the Floci environment. The JSON response contains
+`query`, `genre`, `total`, `movies`, and `nextCursor`. Follow the cursor to retrieve
+additional pages. The demo endpoint is unauthenticated.
 
----
+See [Search movies through the API](docs/opensearch-service/README.md#search-movies-through-the-api)
+for parameters, sample responses, pagination, and errors. For direct Docker
+queries, see [Manually search and verify movie data](docs/opensearch-service/README.md#manually-search-and-verify-movie-data).
+
+## Run tests
+
+```bash
+# Type-check the TypeScript stack definitions.
+npm run build
+
+# Run all CDK infrastructure tests; Docker must be running for Lambda bundling.
+npm test -- --runInBand
+```
+
+Python unit tests cover movie-search queries, pagination, cursor validation,
+connection setup, and failures. See the commented environment and test commands
+in [Test the search implementation](docs/opensearch-service/README.md#test-the-search-implementation).
+These tests mock OpenSearch; deployed API checks use the commands in the service guide.
 
 ## Recommended local workflow
 
-For each development session:
-
 ```bash
+# Start Floci and configure this terminal for local AWS calls.
 floci start
-
 eval "$(floci env)"
 export AWS_ENDPOINT_URL_S3=http://s3.localhost.floci.io:4566
 
+# Confirm the local account, then validate changes.
 aws sts get-caller-identity
-
 npm run build
-npx cdklocal deploy
+npm test -- --runInBand
+
+# Review and deploy just the stack being changed.
+npx cdklocal diff OpenSearchServiceStack
+npx cdklocal deploy OpenSearchServiceStack
 ```
 
-Check resources:
+## Clean up a stack
+
+Destroy a selected stack only when its resources are no longer needed. The stacks
+use destructive removal policies for some resources. Nonempty S3 buckets may
+prevent deletion because automatic object deletion is not configured; review
+and handle their contents before retrying a failed teardown.
 
 ```bash
-aws s3 ls
+# Remove the selected application stack from the configured local environment.
+npx cdklocal destroy OpenSearchServiceStack
+
+# Inspect the remaining local stacks.
 aws cloudformation list-stacks
 ```
 
-Destroy the application stack when needed:
+`CDKToolkit` and its reusable bootstrap resources are separate from the application
+stack. A manually created Floci OpenSearch domain is also managed separately;
+do not assume deleting the stack removes that domain or its indexed data.
+
+## Troubleshooting
+
+### Credentials or endpoint errors
+
+For `InvalidClientTokenId` or calls unexpectedly reaching AWS, check the selected
+CLI and reload the local configuration:
 
 ```bash
-npx cdklocal destroy
-```
-
----
-
-# Troubleshooting
-
-## `InvalidClientTokenId`
-
-### Error
-
-```text
-An error occurred (InvalidClientTokenId) when calling the
-GetCallerIdentity operation:
-The security token included in the request is invalid.
-```
-
-If this works:
-
-```bash
-aws sts get-caller-identity \
-  --endpoint-url http://localhost:4566
-```
-
-but this does not:
-
-```bash
-aws sts get-caller-identity
-```
-
-your AWS CLI is probably too old to use `AWS_ENDPOINT_URL`.
-
-Check:
-
-```bash
+# Check CLI version and which installation your shell selects.
 aws --version
 which -a aws
-```
 
-Upgrade using Homebrew:
-
-```bash
-brew install awscli
-```
-
-On Apple Silicon, the Homebrew version should normally be:
-
-```text
-/opt/homebrew/bin/aws
-```
-
-If both an old and new AWS CLI exist:
-
-```bash
-which -a aws
-```
-
-For example:
-
-```text
-/opt/homebrew/bin/aws
-/usr/local/bin/aws
-```
-
-Inspect the old one:
-
-```bash
-ls -l /usr/local/bin/aws
-```
-
-If it points to:
-
-```text
-/usr/local/aws-cli/aws
-```
-
-remove the old installation:
-
-```bash
-sudo rm /usr/local/bin/aws
-sudo rm -rf /usr/local/aws-cli
-```
-
-Also remove the old completer if present:
-
-```bash
-sudo rm /usr/local/bin/aws_completer 2>/dev/null
-```
-
-Refresh the shell:
-
-```bash
-hash -r
-```
-
-Verify:
-
-```bash
-which -a aws
-aws --version
-```
-
-Then reload Floci:
-
-```bash
+# Reload local credentials and endpoints; remove a stale temporary AWS session token.
 eval "$(floci env)"
-```
-
-and test:
-
-```bash
-aws sts get-caller-identity
-```
-
----
-
-## `AWS_ENDPOINT_URL_S3 must be specified`
-
-### Error
-
-```text
-EnvironmentMisconfigurationError:
-If specifying 'AWS_ENDPOINT_URL' then
-'AWS_ENDPOINT_URL_S3' must be specified
-```
-
-This comes from `aws-cdk-local`.
-
-Fix it by setting the S3 endpoint:
-
-```bash
+unset AWS_SESSION_TOKEN
 export AWS_ENDPOINT_URL_S3=http://s3.localhost.floci.io:4566
+
+# Inspect endpoint settings without printing credentials.
+printenv AWS_ENDPOINT_URL AWS_ENDPOINT_URL_S3
+
+# Compare default endpoint resolution with an explicit local request.
+aws sts get-caller-identity
+aws sts get-caller-identity --endpoint-url http://localhost:4566
 ```
 
-Verify:
+Expected endpoints are `http://localhost.floci.io:4566` and
+`http://s3.localhost.floci.io:4566`. If only the explicit request works, check AWS
+CLI v2 installation, PATH order, and endpoint overrides in your AWS configuration.
+Use Homebrew to install or upgrade `awscli` as appropriate. On Apple Silicon,
+Homebrew's CLI is usually `/opt/homebrew/bin/aws`; ensure the intended installation
+appears first in PATH and open a new terminal after changing it.
+
+### `AWS_ENDPOINT_URL_S3 must be specified`
+
+`aws-cdk-local` requires the S3 override alongside the general Floci endpoint:
 
 ```bash
-env | grep '^AWS_ENDPOINT'
+# Restore the S3 endpoint, then retry the selected deployment.
+export AWS_ENDPOINT_URL_S3=http://s3.localhost.floci.io:4566
+npx cdklocal deploy OpenSearchServiceStack
 ```
 
-Expected:
+### Docker is unavailable or Lambda bundling fails
 
-```text
-AWS_ENDPOINT_URL=http://localhost.floci.io:4566
-AWS_ENDPOINT_URL_S3=http://s3.localhost.floci.io:4566
-```
-
-Then retry:
+Start Docker Desktop or your configured Docker engine, then check connectivity:
 
 ```bash
-npx cdklocal bootstrap
-npx cdklocal deploy
+# Inspect the selected Docker context and its engine.
+docker context show
+docker info
+
+# Confirm Floci and service containers are running.
+docker ps --format '{{.Names}}\t{{.Ports}}'
 ```
 
----
+For package-download failures during bundling, check the container's network
+access. Retry the failed synthesis, test, or deployment after fixing the cause.
+
+### Direct OpenSearch curl hangs
+
+Floci may return an internal Docker address that your Mac cannot reach directly.
+Use the HTTP API URL for application searches, or run direct queries inside the
+OpenSearch container using the helper in
+[Manually search and verify movie data](docs/opensearch-service/README.md#manually-search-and-verify-movie-data).
 
 ## Local vs real AWS
 
-Use:
+Use `cdklocal` with the Floci environment for local deployments. Use `cdk` with
+real AWS credentials and region settings for AWS deployments. Switching the
+command alone does not clear local credentials or endpoint overrides.
+
+Before targeting AWS, use a shell configured for your intended AWS profile and
+region. Remove Floci's `AWS_ENDPOINT_URL`, `AWS_ENDPOINT_URL_S3`, any other
+service endpoint overrides, and its test credentials from that shell. Check
+profile-level endpoint settings too. Ensure `CDK_DEFAULT_ACCOUNT` and
+`CDK_DEFAULT_REGION`, if set explicitly, refer to the intended AWS environment.
 
 ```bash
-npx cdklocal deploy
-```
-
-for Floci.
-
-Use:
-
-```bash
-npx cdk deploy
-```
-
-for real AWS.
-
-Before deploying to real AWS, always verify:
-
-```bash
+# Verify the intended AWS account and selected region after configuring the shell.
 aws sts get-caller-identity
+aws configure list
+
+# Review the selected stack using the normal AWS CDK CLI.
+npx cdk diff OpenSearchServiceStack
 ```
 
-If the account is:
-
-```text
-000000000000
-```
-
-you are still connected to Floci.
+Account `000000000000` indicates the local Floci environment. Review the actual
+account before any AWS deployment. The repository is a local demo, and AWS
+readiness requires additional work: the search API is public and unauthenticated,
+S3 bucket names are fixed, removal policies can delete data, and ingestion is
+missing some AWS permissions. See
+[OpenSearch permissions](docs/opensearch-service/README.md#opensearch-permissions)
+for the current permission boundaries and gaps.
