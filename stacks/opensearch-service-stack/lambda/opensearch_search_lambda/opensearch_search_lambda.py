@@ -102,7 +102,7 @@ def parse_request(event):
     if any(len(values) != 1 for values in parse_qs(
             event.get("rawQueryString") or "", keep_blank_values=True).values()):
         raise ApiError(400, "INVALID_REQUEST", "Query parameters must not be repeated.")
-    if set(raw) - {"q", "genre", "limit", "cursor"} or any(not isinstance(v, str) for v in raw.values()):
+    if set(raw) - {"q", "genre", "limit", "cursor", "paginate"} or any(not isinstance(v, str) for v in raw.values()):
         raise ApiError(400, "INVALID_REQUEST", "Unsupported query parameters.")
     query, genre = raw.get("q", "").strip(), raw.get("genre", "").strip()
     if not query and not genre:
@@ -113,6 +113,12 @@ def parse_request(event):
     if not limit.isascii() or not limit.isdigit() or len(limit) > 3 or not 1 <= int(limit) <= 100:
         raise ApiError(400, "INVALID_REQUEST", "limit must be an integer from 1 to 100.")
     params = {"q": query or None, "genre": genre or None, "limit": int(limit)}
+    if raw.get("paginate", "true") not in ("true", "false"):
+        raise ApiError(400, "INVALID_REQUEST", "paginate must be true or false.")
+    if raw.get("paginate") == "false":
+        if "cursor" in raw:
+            raise ApiError(400, "INVALID_REQUEST", "cursor requires pagination.")
+        params["paginate"] = False
     cursor = decode_cursor(raw["cursor"], params) if "cursor" in raw else None
     return params, cursor
 
@@ -133,11 +139,12 @@ def ensure_complete(result):
 
 
 def search_movies(client, params, cursor):
+    paginate = params.get("paginate", True)
     pit_id = cursor["pit"] if cursor else None
     handed_off = False
     completed = False
     try:
-        if not pit_id:
+        if paginate and not pit_id:
             snapshot = client.create_pit(index=INDEX, params={
                 "keep_alive": KEEP_ALIVE, "allow_partial_pit_creation": "false",
             })
@@ -152,21 +159,25 @@ def search_movies(client, params, cursor):
             query["bool"]["filter"].append({"term": {"genres": params["genre"]}})
         sort = [{"_score": "desc"}, {"movieId": "asc"}] if params["q"] else [{"movieId": "asc"}]
         body = {
-            "query": query, "sort": sort, "size": params["limit"] + 1,
+            "query": query, "sort": sort, "size": params["limit"] + (1 if paginate else 0),
             "track_total_hits": True, "timeout": "4s",
             "_source": ["movieId", "title", "genres"],
-            "pit": {"id": pit_id, "keep_alive": KEEP_ALIVE},
         }
+        if pit_id:
+            body["pit"] = {"id": pit_id, "keep_alive": KEEP_ALIVE}
         if cursor:
             body["search_after"] = cursor["sort"]
-        result = client.search(body=body, params={"allow_partial_search_results": "false"})
+        search_args = {"body": body, "params": {"allow_partial_search_results": "false"}}
+        if not paginate:
+            search_args["index"] = INDEX
+        result = client.search(**search_args)
         ensure_complete(result)
         hits = result["hits"]["hits"]
         total = result["hits"]["total"]
         if total["relation"] != "eq":
             raise ApiError(503, "SEARCH_UNAVAILABLE", "Could not obtain complete search results.")
         page = hits[:params["limit"]]
-        next_cursor = encode_cursor(pit_id, page[-1]["sort"], params) if len(hits) > len(page) else None
+        next_cursor = encode_cursor(pit_id, page[-1]["sort"], params) if paginate and len(hits) > len(page) else None
         movies = [{field: hit["_source"][field] for field in ("movieId", "title", "genres")} for hit in page]
         handed_off = next_cursor is not None
         completed = True

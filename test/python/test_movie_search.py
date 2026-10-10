@@ -65,6 +65,32 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(body['query']['bool']['must'], [])
         self.client.delete_pit.assert_called_once()
 
+    def test_first_page_without_snapshot(self):
+        self.client.search.return_value = result([1, 2], total=10)
+        status, data = self.call({'q': 'toy', 'limit': '2', 'paginate': 'false'})
+        self.assertEqual(status, 200)
+        self.assertEqual(data['total'], 10)
+        self.assertEqual(len(data['movies']), 2)
+        self.assertIsNone(data['nextCursor'])
+        self.client.create_pit.assert_not_called()
+        self.client.delete_pit.assert_not_called()
+        args = self.client.search.call_args.kwargs
+        self.assertEqual(args['index'], 'movies')
+        self.assertEqual(args['body']['size'], 2)
+        self.assertNotIn('pit', args['body'])
+
+    def test_nonpaginated_errors_never_create_snapshot(self):
+        self.client.search.side_effect = ConnectionTimeout('TIMEOUT', 'timeout')
+        self.assertEqual(self.call({'q': 'toy', 'paginate': 'false'})[0], 504)
+        self.client.create_pit.assert_not_called()
+        self.client.delete_pit.assert_not_called()
+
+    def test_invalid_pagination_parameters(self):
+        for params in [{'q': 'toy', 'paginate': 'no'},
+                       {'q': 'toy', 'paginate': 'false', 'cursor': 'anything'}]:
+            self.assertEqual(self.call(params)[0], 400)
+        self.client.search.assert_not_called()
+
     def test_invalid_parameters_do_not_contact_opensearch(self):
         for params in [None, {}, {'q': ' '}, {'q': 'x' * 201}, {'genre': 'x' * 101},
                        {'q': 'toy', 'limit': '0'}, {'q': 'toy', 'limit': '101'},

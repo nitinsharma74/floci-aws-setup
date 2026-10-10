@@ -76,6 +76,7 @@ test('creates the movies data bucket and OpenSearch Lambda functions', () => {
       Match.objectLike({ Action: 'es:DescribeDomain', Effect: 'Allow', Resource: domainArn }),
       Match.objectLike({ Action: 'es:ESHttpPost', Effect: 'Allow', Resource: Match.arrayWith([
         domainPath('/movies/_search/point_in_time'), domainPath('/_search'),
+        domainPath('/movies/_search'),
       ]) }),
       Match.objectLike({ Action: 'es:ESHttpDelete', Effect: 'Allow', Resource: domainPath('/_search/point_in_time') }),
     ]) },

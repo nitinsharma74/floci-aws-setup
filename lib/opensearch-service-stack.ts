@@ -123,6 +123,7 @@ export class OpensearchServiceStack extends cdk.Stack {
       resources: [
         `${searchDomain.domainArn}/movies/_search/point_in_time`,
         `${searchDomain.domainArn}/_search`,
+        `${searchDomain.domainArn}/movies/_search`,
       ],
     }));
     searchLambda.addToRolePolicy(new PolicyStatement({
