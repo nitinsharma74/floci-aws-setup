@@ -267,6 +267,37 @@ Errors use this JSON shape:
 The Lambda logs request IDs, elapsed time, returned counts, and failures. Clients
 receive JSON errors without internal exception details.
 
+## Local movie-search page
+
+The demo page searches while you type and supports an optional genre filter.
+It shows the first 20 matches and the total match count, without pagination or
+autocomplete. A small Python standard-library server serves the HTML and forwards
+search requests to the existing API, so no browser CORS changes are needed.
+
+After completing setup and ingestion, run from the repository root:
+
+```bash
+# Load Floci's environment and discover the deployed movie API.
+eval "$(floci env)"
+MOVIES_API_ID=$(aws apigatewayv2 get-apis \
+  --query "Items[?Name=='movies-search-api'].ApiId | [0]" --output text)
+MOVIES_SEARCH_URL="http://localhost:4566/execute-api/${MOVIES_API_ID}/\$default/movies/search"
+
+# Serve the page locally; keep this terminal open.
+python3 scripts/opensearch-service/search_demo.py --url "$MOVIES_SEARCH_URL"
+```
+
+Open **http://127.0.0.1:8000** in your browser. Try `Toy Story`, `toy stroy`, or
+select a genre without entering a title. Clear resets both fields. Searches run
+after a 350 ms typing pause; changing the genre or pressing Enter searches
+immediately. Requests use `paginate=false` to avoid creating pagination snapshots.
+
+If discovery returns `None`, confirm the stack is deployed and the Floci
+environment is loaded. If port 8000 is busy, add `--port 8001` and open
+http://127.0.0.1:8001 instead. Stop the server with Ctrl+C. Floci and indexed movie
+data must remain available for searches to succeed. No additional dependencies
+are required; opening the HTML file directly does not run the proxy.
+
 ## Manually search and verify movie data
 
 With Floci and the OpenSearch container running, query OpenSearch directly to

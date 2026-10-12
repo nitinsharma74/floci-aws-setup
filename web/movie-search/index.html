@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Movie Search</title>
+  <style>
+    body { margin: 0; background: #f8fafc; color: #172033; font: 16px/1.5 system-ui, sans-serif; }
+    main { max-width: 720px; margin: 48px auto; padding: 0 20px; }
+    h1, .hint { text-align: center; }
+    .hint, #status, .genres { color: #526175; }
+    form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 28px 0; }
+    label { display: grid; gap: 6px; flex: 1; min-width: 180px; }
+    .title-field { flex: 2; }
+    input, select, button { box-sizing: border-box; min-height: 44px; padding: 10px; border: 1px solid #b8c2d0; border-radius: 6px; font: inherit; background: white; color: inherit; }
+    input, select { width: 100%; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+    ul { list-style: none; padding: 0; }
+    li { padding: 14px 0; border-bottom: 1px solid #dce2ea; }
+    .genres { font-size: 14px; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Movie Search</h1>
+    <p class="hint" id="hint">Try Toy Story or a typo like toy stroy.</p>
+    <form id="search-form" role="search">
+      <label class="title-field" for="query">Movie title
+        <input id="query" type="search" maxlength="200" placeholder="Search movies…" aria-describedby="hint" autocomplete="off">
+      </label>
+      <label for="genre">Genre
+        <select id="genre">
+          <option value="">All genres</option>
+          <option>Action</option>
+          <option>Adventure</option>
+          <option>Animation</option>
+          <option>Comedy</option>
+          <option>Crime</option>
+          <option>Drama</option>
+          <option>Horror</option>
+          <option>Romance</option>
+          <option>Sci-Fi</option>
+          <option>Thriller</option>
+        </select>
+      </label>
+      <button type="button" id="clear">Clear</button>
+    </form>
+    <p id="status" role="status" aria-live="polite" aria-atomic="true">Type a movie title or choose a genre to search.</p>
+    <ul id="results" aria-label="Movie results" aria-busy="false"></ul>
+    <noscript>Enable JavaScript to search movies.</noscript>
+  </main>
+  <script>
+    const query = document.getElementById('query');
+    const genre = document.getElementById('genre');
+    const status = document.getElementById('status');
+    const results = document.getElementById('results');
+    let debounceTimer;
+    let controller;
+    let revision = 0;
+
+    function scheduleSearch(delay = 0) {
+      clearTimeout(debounceTimer);
+      controller?.abort();
+      const currentRevision = ++revision;
+      const title = query.value.trim();
+      const selectedGenre = genre.value;
+      results.replaceChildren();
+      results.setAttribute('aria-busy', 'false');
+      if (!title && !selectedGenre) {
+        status.textContent = 'Type a movie title or choose a genre to search.';
+        return;
+      }
+      if ([...title].length > 200) {
+        status.textContent = 'Keep the movie title to 200 characters or fewer.';
+        return;
+      }
+      status.textContent = 'Searching…';
+      results.setAttribute('aria-busy', 'true');
+      debounceTimer = setTimeout(() => search(title, selectedGenre, currentRevision), delay);
+    }
+
+    async function search(title, selectedGenre, currentRevision) {
+      const requestController = new AbortController();
+      controller = requestController;
+      const timeout = setTimeout(() => requestController.abort(), 31000);
+      const params = new URLSearchParams({ limit: '20', paginate: 'false' });
+      if (title) params.set('q', title);
+      if (selectedGenre) params.set('genre', selectedGenre);
+      try {
+        const response = await fetch('/api/movies/search?' + params, {
+          signal: requestController.signal,
+          cache: 'no-store'
+        });
+        const data = await response.json();
+        if (currentRevision !== revision) return;
+        if (!response.ok) {
+          throw new Error(data.error?.message || 'Search is unavailable. Please try again.');
+        }
+        if (!Number.isInteger(data.total) || data.total < 0 || !Array.isArray(data.movies) ||
+            !data.movies.every(movie => typeof movie.title === 'string' &&
+              Array.isArray(movie.genres) && movie.genres.every(value => typeof value === 'string'))) {
+          throw new Error('Search returned an unexpected response. Please try again.');
+        }
+        const items = data.movies.map(movie => {
+          const item = document.createElement('li');
+          const title = document.createElement('strong');
+          title.textContent = movie.title;
+          const genres = document.createElement('div');
+          genres.className = 'genres';
+          genres.textContent = movie.genres.join(' · ') || 'No genres listed';
+          item.append(title, genres);
+          return item;
+        });
+        results.replaceChildren(...items);
+        status.textContent = data.total === 0
+          ? 'No movies found. Try another title or genre.'
+          : `Showing ${data.movies.length} of ${data.total} matches`;
+      } catch (error) {
+        if (currentRevision !== revision) return;
+        results.replaceChildren();
+        status.textContent = error.name === 'AbortError'
+          ? 'Search timed out. Please try again.'
+          : error instanceof TypeError || error instanceof SyntaxError
+            ? 'Could not reach movie search. Check that the local server and Floci are running.'
+            : error.message;
+      } finally {
+        clearTimeout(timeout);
+        if (currentRevision === revision) {
+          results.setAttribute('aria-busy', 'false');
+          controller = null;
+        }
+      }
+    }
+
+    query.addEventListener('input', event => {
+      if (!event.isComposing) scheduleSearch(350);
+    });
+    query.addEventListener('compositionstart', () => {
+      clearTimeout(debounceTimer);
+      controller?.abort();
+      revision++;
+      results.replaceChildren();
+      results.setAttribute('aria-busy', 'false');
+      status.textContent = 'Finish typing to search.';
+    });
+    query.addEventListener('compositionend', () => scheduleSearch(350));
+    genre.addEventListener('change', () => scheduleSearch());
+    document.getElementById('search-form').addEventListener('submit', event => {
+      event.preventDefault();
+      scheduleSearch();
+    });
+    document.getElementById('clear').addEventListener('click', () => {
+      query.value = '';
+      genre.value = '';
+      scheduleSearch();
+      query.focus();
+    });
+  </script>
+</body>
+</html>
