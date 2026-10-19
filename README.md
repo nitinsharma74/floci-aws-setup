@@ -11,6 +11,7 @@ and test each service.
 | `TestStack` | An S3 upload invokes a Lambda that uppercases the file contents and writes them to a processed bucket. | [Stack source](lib/test-stack.ts) |
 | `EventCollectorServiceStack` | An HTTP API accepts events for processing through Lambda, Kinesis, Firehose, S3, Glue, and Athena. | [Event Collector Service](docs/event-collector-service/README.md) |
 | `OpenSearchServiceStack` | Ingests MovieLens data and serves title search with typo tolerance, genre filters, and JSON pagination. Autocomplete is planned. | [OpenSearch Movie Search Service](docs/opensearch-service/README.md) |
+| `RateLimitedApiStack` | REST API with ten requests per user per minute and one-hour response caching. | [Rate Limited REST API](docs/rate-limited-api.md) |
 
 The CDK entry point is [bin/app.ts](bin/app.ts). Stack definitions live in `lib/`,
 Lambda code in `stacks/`, and infrastructure and Python tests in `test/`.
@@ -80,7 +81,7 @@ npx cdklocal bootstrap
 # Type-check the existing CDK app.
 npm run build
 
-# List the three stack names available for deployment.
+# List the four stack names available for deployment.
 npx cdklocal list
 ```
 
@@ -109,7 +110,7 @@ aws cloudformation describe-stacks --stack-name OpenSearchServiceStack
 aws s3 ls
 ```
 
-For the other examples, substitute `TestStack` or `EventCollectorServiceStack`.
+For the other examples, substitute `TestStack`, `EventCollectorServiceStack`, or `RateLimitedApiStack`.
 Follow the selected service guide for data upload, invocation, and verification.
 In particular, Floci may require the OpenSearch domain to be created separately;
 follow [Run locally](docs/opensearch-service/README.md#run-locally) to create the

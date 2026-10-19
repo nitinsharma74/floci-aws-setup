@@ -5,6 +5,7 @@ import * as cdk from 'aws-cdk-lib';
 import { TestStack } from '../lib/test-stack';
 import { EventCollectorServiceStack } from '../lib/event-collector-service-stack'
 import { OpensearchServiceStack } from '../lib/opensearch-service-stack'
+import { RateLimitedApiStack } from '../lib/rate-limited-api-stack';
 
 const app = new cdk.App();
 
@@ -25,3 +26,5 @@ new EventCollectorServiceStack(app, 'EventCollectorServiceStack', {
 new OpensearchServiceStack(app, 'OpenSearchServiceStack', {
   env,
 });
+
+new RateLimitedApiStack(app, 'RateLimitedApiStack', { env });
